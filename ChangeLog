@@ -1,5 +1,89 @@
 ----------------------------------------------------------------------------------------
 Scheduled Release 8.2308.0 (aka 2023.08) 2023-08-??
+- 2023-08-02: lookup tables: fix static analyzer issue
+  If something goes really wrong, a lookup table's name would not
+  be set. That could lead to a NULL pointer access. HOWEVER, this
+  would require serious bugs in config parameter parsing, as the
+  lookup table name is a required parameter and the parser will
+  error out if not set.
+  So the bug is mostly cosmetic - but it does not hurt to handle
+  this case, of course.
+- 2023-08-02: lookup tables bugfix: reload on HUP did not work when backgrounded
+  Lookup tables were only reloaded on HUP if the -n option was given
+  and rsyslog no backgrounded. This patch fixes the issue.
+  closes: https://github.com/rsyslog/rsyslog/issues/4813
+- 2023-07-30: testbench: make test more reliable
+  There was a race between tcpflood and rsyslog in imptpc_maxsessions.sh.
+  We now use the new -A tcpflood option to make the timing more
+  predictable, hopefully fixing test flakiness.
+  Note: if that does not help, we need to introduce a wait on the number
+  of error messages and maybe a delay before tcpflood termination. The
+  theory behind the latter is that rsyslog possibly does not fully
+  iniaitlize session which are quickly aborted before rsyslog receives
+  the related OS notification! We just record this info in case we
+  need it and are positive that this change will fix the situation.
+- 2023-07-28: openssl: make connection setup more reliable by use of newer lib feature
+  Replaced depreceated method SSLv23_method with TLS_method.
+  In OpenSSL 1.1.0 and higher, SSLv23_method causes some errors
+  in TLS handshake from time to time. As this method is depreceated
+  since 1.1.0, I have replaced it with the follow up method
+  TLS_method which is the most generic one.
+  It fixes the random test failures in tests like
+  - sndrcv_tls_ossl_anon_rebind.sh
+  Also added some debug output in OpenSSL error handling, which is
+  useful when analysing debug files.
+  closes: https://github.com/rsyslog/rsyslog/issues/5201
+- 2023-07-28: testbench improvement: define state file directories for imfile tests
+  Not all imfile tests have state file directories or a global working
+  directory defined. This results in usage of the default location.
+  While state file names should be sufficiently different, there is still
+  some riks of using the same name in different tests. That becomes
+  problematic if tests are run in parallel (and they are run in
+  parallel inside the regular CI).
+  NOTE: NOT YET COMPLETED FOR ALL TESTS! We are considering if it makes
+  sense to deliberately keep some as-is.
+- 2023-07-28: tcpflood bugfix: TCP sending was not implemented properly
+  Note: tcpflood is a testbench tool. This bug could lead to testbench
+  false positives. No way it can affect production deployments.
+  The tcpflood tool did improperly assume that a TCP sendto() call
+  would send messages of any size in a single shot. This is not the
+  case. It has now been corrected to proper behavior.
+  As a side-activity, some int variables which acutally needed to be
+  size_t have been fixed as well.
+- 2023-07-28: testbench: make waiting for HUP processing more reliable
+  The previous approach was more or less delay based. We have now
+  changed the code to enable imdiag to detect if HUP is underway
+  and wait until it is completed. The new method still employs some
+  kind of timeout, but is now quite reliable. Most importantly,
+  it works great with long-running HUP processing, which can happen
+  e.g. when querying the system name takes long or some actions need
+  longer time to persist their HUP processing.
+  The new approach will most likely reduce CI flakes and also speed
+  up testbench runs. The speedup happens from not having to wait a
+  full delay in cases where we detect HUP is completed (plus reduced
+  timeout when we cannot clearly detect this - see code comments why
+  the new method is still considered more reliable than the old one).
+  Code note: we needed to slightly re-structure the way actual HUP
+  processing and the "HUP mutex" is handled. After best analysis,
+  this does not affect the reliability or speed in production
+  settings.
+  closes https://github.com/rsyslog/rsyslog/issues/5192
+- 2023-07-27: build system: make rsyslogd execute when --disable-inet is configured
+  This option is mostly useless, as network functionality depends on the
+  modules loaded by the config. The only real, and important, effect it
+  has is to control auto-load of omfwd - a feature almost all installations
+  depend in (backward compatibility).
+  This has been clarified in ./configure -help
+  Also, when --disable-inet is given, rsyslog now executes successfully.
+  The reason for the abort was that previously building of the lmnet
+  component was prevented, but that component is also needed by rsyslog
+  startup itself to query its own (correct) hostname.
+  Note that --disable-inet still does not compile some networking
+  libraries. So do not use it if you intend to load standard networking
+  modules like omfwd, imtcp or imudp.
+  closes https://github.com/rsyslog/rsyslog/issues/5188
+- 2023-07-26: testbench/CI: update zookeper download to newer version
+  Old version is no longer available.
 - 2023-07-24: openssl: add support for new-version init function
 - 2023-07-07: add CRL support for network (TLS) drivers
   Thanks to Darren J Moffat for implementing the OpenSSL part.

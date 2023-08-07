@@ -130,6 +130,20 @@ skip_platform() {
 
 }
 
+# function to skip a test if TSAN is enabled
+# This is necessary as TSAN does not properly handle thread creation
+# after fork() - which happens regularly in rsyslog if backgrounding
+# is activated.
+# $1 is the reason why TSAN is not supported
+# note: we depend on CFLAGS to properly reflect build options (what
+#       usually is the case when the testbench is run)
+skip_TSAN() {
+	if [[ "$CFLAGS" == *"sanitize=thread"* ]]; then
+		printf 'test incompatible with TSAN because of %s\n' "$1"
+		exit 77
+	fi
+}
+
 
 # a consistent format to output testbench timestamps
 tb_timestamp() {
@@ -1019,6 +1033,19 @@ quit"
 }
 
 
+# wait for HUP to complete. $1 is the instance
+# note: there is a slight chance HUP was not completed. This can happen if it takes
+# the system very long (> 500ms) to receive the HUP and set the internal flag
+# variable. aka "very very low probability".
+await_HUP_processed() {
+	if [ "$1" == "2" ]; then
+		echo AwaitHUPComplete | $TESTTOOL_DIR/diagtalker -pIMDIAG_PORT2 || error_exit  $?
+	else
+		echo AwaitHUPComplete | $TESTTOOL_DIR/diagtalker -p$IMDIAG_PORT || error_exit  $?
+	fi
+}
+
+
 # wait for all pending lookup table reloads to complete $1 is the instance.
 await_lookup_table_reload() {
 	if [ "$1" == "2" ]; then
@@ -1203,8 +1230,10 @@ issue_HUP() {
 		sleeptime=1000
 	fi
 	kill -HUP $(cat $RSYSLOG_PIDBASE$1.pid)
-	printf 'HUP issued to pid %d\n' $(cat $RSYSLOG_PIDBASE$1.pid)
-	$TESTTOOL_DIR/msleep $sleeptime
+	printf 'HUP issued to pid %d - waiting for it to become processed\n' \
+		$(cat $RSYSLOG_PIDBASE$1.pid)
+	await_HUP_processed
+	#$TESTTOOL_DIR/msleep $sleeptime
 }
 
 
@@ -1670,9 +1699,9 @@ presort() {
 
 #START: ext kafka config
 #dep_cache_dir=$(readlink -f .dep_cache)
-export RS_ZK_DOWNLOAD=apache-zookeeper-3.8.1-bin.tar.gz
+export RS_ZK_DOWNLOAD=apache-zookeeper-3.8.2-bin.tar.gz
 dep_cache_dir=$(pwd)/.dep_cache
-dep_zk_url=https://downloads.apache.org/zookeeper/zookeeper-3.8.1/$RS_ZK_DOWNLOAD
+dep_zk_url=https://downloads.apache.org/zookeeper/zookeeper-3.8.2/$RS_ZK_DOWNLOAD
 dep_zk_cached_file=$dep_cache_dir/$RS_ZK_DOWNLOAD
 
 export RS_KAFKA_DOWNLOAD=kafka_2.13-2.8.0.tgz
