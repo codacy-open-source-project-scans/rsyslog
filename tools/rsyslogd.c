@@ -3,7 +3,7 @@
  * because it was either written from scratch by me (rgerhards) or
  * contributors who agreed to ASL 2.0.
  *
- * Copyright 2004-2022 Rainer Gerhards and Adiscon
+ * Copyright 2004-2023 Rainer Gerhards and Adiscon
  *
  * This file is part of rsyslog.
  *
@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <dirent.h>
 #include <unistd.h>
 #include <errno.h>
 #ifdef ENABLE_LIBLOGGING_STDLOG
@@ -39,6 +40,9 @@
 #endif
 #ifdef ENABLE_LIBCAPNG
 	#include <cap-ng.h>
+#endif
+#if defined(HAVE_LINUX_CLOSE_RANGE_H)
+#	include <linux/close_range.h>
 #endif
 
 #include "rsyslog.h"
@@ -368,6 +372,36 @@ finalize_it:
 	RETiRet;
 }
 
+
+
+/* note: this function is specific to OS'es which provide
+ * the ability to read open file descriptors via /proc.
+ * returns 0 - success, something else otherwise
+ */
+static int
+close_unneeded_open_files(const char *const procdir,
+	const int beginClose, const int parentPipeFD)
+{
+	DIR *dir;
+	struct dirent *entry;
+
+	dir = opendir(procdir);
+	if (dir == NULL) {
+		dbgprintf("closes unneeded files: opendir failed for %s\n", procdir);
+		return 1;
+	}
+
+	while ((entry = readdir(dir)) != NULL) {
+		const int fd = atoi(entry->d_name);
+		if(fd >= beginClose && (((fd != dbgGetDbglogFd()) && (fd != parentPipeFD)))) {
+			close(fd);
+		}
+	}
+
+	closedir(dir);
+	return 0;
+}
+
 /* prepares the background processes (if auto-backbrounding) for
  * operation.
  */
@@ -413,12 +447,37 @@ prepareBackground(const int parentPipeFD)
 	}
 #endif
 
-	/* close unnecessary open files */
-	const int endClose = getdtablesize();
-	close(0);
-	for(int i = beginClose ; i <= endClose ; ++i) {
-		if((i != dbgGetDbglogFd()) && (i != parentPipeFD)) {
-			  aix_close_it(i); /* AIXPORT */
+	/* close unnecessary open files - first try to use /proc file system,
+	 * if that is not possible iterate through all potentially open file
+	 * descriptors. This can be lenghty, but in practice /proc should work
+	 * for almost all current systems, and the fallback is primarily for
+	 * Solaris and AIX, where we do expect a decent max numbers of fds.
+	 */
+	close(0); /* always close stdin, we do not need it */
+
+	/* try Linux, Cygwin, NetBSD */
+	if(close_unneeded_open_files("/proc/self/fd", beginClose, parentPipeFD) != 0) {
+		/* try MacOS, FreeBSD */
+		if(close_unneeded_open_files("/proc/fd", beginClose, parentPipeFD) != 0) {
+			/* did not work out, so let's close everything... */
+			int endClose = (parentPipeFD > dbgGetDbglogFd()) ? parentPipeFD : dbgGetDbglogFd();
+			for(int i = beginClose ; i <= endClose ; ++i) {
+				if((i != dbgGetDbglogFd()) && (i != parentPipeFD)) {
+					aix_close_it(i); /* AIXPORT */
+				}
+			}
+			beginClose = endClose + 1;
+			endClose = getdtablesize();
+#if defined(HAVE_CLOSE_RANGE)
+			if(close_range(beginClose, endClose, 0) !=0) {
+				dbgprintf("errno %d after close_range(), fallback to loop\n", errno);
+#endif
+				for(int i = beginClose ; i <= endClose ; ++i) {
+					aix_close_it(i); /* AIXPORT */
+				}
+#if defined(HAVE_CLOSE_RANGE)
+			}
+#endif
 		}
 	}
 	seedRandomNumberForChild();
@@ -1582,85 +1641,90 @@ initAll(int argc, char **argv)
 	localRet = rsconf.Load(&ourConf, ConfFile);
 
 #ifdef ENABLE_LIBCAPNG
-	/*
-	 * Drop capabilities to the necessary set
-	 */
-	int capng_rc, capng_failed = 0;
-	typedef struct capabilities_s {
-		int capability; /* capability code */
-		const char *name; /* name of the capability to be displayed */
-		sbool present; /* is the capability present that is needed by rsyslog? if so we do not drop it */
-		capng_type_t type;
-	} capabilities_t;
-
-	capabilities_t capabilities[] = {
-		#define CAP_FIELD(code, type) { code, #code,  0 , type}
-		CAP_FIELD(CAP_BLOCK_SUSPEND, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
-		CAP_FIELD(CAP_CHOWN, CAPNG_EFFECTIVE | CAPNG_PERMITTED ),
-		CAP_FIELD(CAP_IPC_LOCK, CAPNG_EFFECTIVE | CAPNG_PERMITTED ),
-		CAP_FIELD(CAP_LEASE, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
-		CAP_FIELD(CAP_NET_ADMIN, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
-		CAP_FIELD(CAP_NET_BIND_SERVICE, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
-		CAP_FIELD(CAP_DAC_OVERRIDE, CAPNG_EFFECTIVE | CAPNG_PERMITTED | CAPNG_BOUNDING_SET),
-		CAP_FIELD(CAP_SETGID, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
-		CAP_FIELD(CAP_SETUID, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
-		CAP_FIELD(CAP_SYS_ADMIN, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
-		CAP_FIELD(CAP_SYS_CHROOT, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
-		CAP_FIELD(CAP_SYS_RESOURCE, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
-		CAP_FIELD(CAP_SYSLOG, CAPNG_EFFECTIVE | CAPNG_PERMITTED)
-		#undef CAP_FIELD
-	};
-
-	if (capng_have_capabilities(CAPNG_SELECT_CAPS) > CAPNG_NONE) {
-		/* Examine which capabilities are available to us, so we do not try to
-		   drop something that is not present. We need to do this in two steps,
-		   because capng_clear clears the capability set. In the second step,
-		   we add back those caps, which were present before clearing the selected
-		   posix capabilities set.
+	if (loadConf->globals.bCapabilityDropEnabled) {
+		/*
+		* Drop capabilities to the necessary set
 		*/
-		unsigned long caps_len = sizeof(capabilities) / sizeof(capabilities_t);
-		for (unsigned long i = 0; i < caps_len; i++) {
-			if (capng_have_capability(CAPNG_EFFECTIVE, capabilities[i].capability)) {
-				capabilities[i].present = 1;
+		int capng_rc, capng_failed = 0;
+		typedef struct capabilities_s {
+			int capability; /* capability code */
+			const char *name; /* name of the capability to be displayed */
+			/* is the capability present that is needed by rsyslog? if so we do not drop it */
+			sbool present;
+			capng_type_t type;
+		} capabilities_t;
+
+		capabilities_t capabilities[] = {
+			#define CAP_FIELD(code, type) { code, #code,  0 , type}
+			CAP_FIELD(CAP_BLOCK_SUSPEND, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
+			CAP_FIELD(CAP_NET_RAW, CAPNG_EFFECTIVE | CAPNG_PERMITTED ),
+			CAP_FIELD(CAP_CHOWN, CAPNG_EFFECTIVE | CAPNG_PERMITTED ),
+			CAP_FIELD(CAP_IPC_LOCK, CAPNG_EFFECTIVE | CAPNG_PERMITTED ),
+			CAP_FIELD(CAP_LEASE, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
+			CAP_FIELD(CAP_NET_ADMIN, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
+			CAP_FIELD(CAP_NET_BIND_SERVICE, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
+			CAP_FIELD(CAP_DAC_OVERRIDE, CAPNG_EFFECTIVE | CAPNG_PERMITTED | CAPNG_BOUNDING_SET),
+			CAP_FIELD(CAP_SETGID, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
+			CAP_FIELD(CAP_SETUID, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
+			CAP_FIELD(CAP_SYS_ADMIN, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
+			CAP_FIELD(CAP_SYS_CHROOT, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
+			CAP_FIELD(CAP_SYS_RESOURCE, CAPNG_EFFECTIVE | CAPNG_PERMITTED),
+			CAP_FIELD(CAP_SYSLOG, CAPNG_EFFECTIVE | CAPNG_PERMITTED)
+			#undef CAP_FIELD
+		};
+
+		if (capng_have_capabilities(CAPNG_SELECT_CAPS) > CAPNG_NONE) {
+			/* Examine which capabilities are available to us, so we do not try to
+				drop something that is not present. We need to do this in two steps,
+				because capng_clear clears the capability set. In the second step,
+				we add back those caps, which were present before clearing the selected
+				posix capabilities set.
+			*/
+			unsigned long caps_len = sizeof(capabilities) / sizeof(capabilities_t);
+			for (unsigned long i = 0; i < caps_len; i++) {
+				if (capng_have_capability(CAPNG_EFFECTIVE, capabilities[i].capability)) {
+					capabilities[i].present = 1;
+				}
 			}
-		}
 
-		capng_clear(CAPNG_SELECT_BOTH);
+			capng_clear(CAPNG_SELECT_BOTH);
 
-		for (unsigned long i = 0; i < caps_len; i++) {
-			if (capabilities[i].present) {
-				DBGPRINTF("The %s capability is present, "
-					"will try to preserve it.\n", capabilities[i].name);
-				if ((capng_rc = capng_update(CAPNG_ADD, capabilities[i].type,
-				capabilities[i].capability)) != 0) {
-					LogError(0, RS_RET_LIBCAPNG_ERR,
-							"could not update the internal posix capabilities settings "
-							"based on the options passed to it, capng_update=%d", capng_rc);
-					capng_failed = 1;
+			for (unsigned long i = 0; i < caps_len; i++) {
+				if (capabilities[i].present) {
+					DBGPRINTF("The %s capability is present, "
+						"will try to preserve it.\n", capabilities[i].name);
+					if ((capng_rc = capng_update(CAPNG_ADD, capabilities[i].type,
+					capabilities[i].capability)) != 0) {
+						LogError(0, RS_RET_LIBCAPNG_ERR,
+								"could not update the internal posix capabilities"
+								" settings based on the options passed to it,"
+								" capng_update=%d", capng_rc);
+						capng_failed = 1;
+					}
+				} else {
+					DBGPRINTF("The %s capability is not present, "
+						"will not try to preserve it.\n", capabilities[i].name);
+				}
+			}
+
+			if ((capng_rc = capng_apply(CAPNG_SELECT_BOTH)) != 0) {
+				LogError(0, RS_RET_LIBCAPNG_ERR,
+					"could not transfer the specified internal posix capabilities "
+					"settings to the kernel, capng_apply=%d", capng_rc);
+				capng_failed = 1;
+			}
+
+			if (capng_failed) {
+				DBGPRINTF("Capabilities were not dropped successfully.\n");
+				if (loadConf->globals.bAbortOnFailedLibcapngSetup) {
+					ABORT_FINALIZE(RS_RET_LIBCAPNG_ERR);
 				}
 			} else {
-				DBGPRINTF("The %s capability is not present, "
-					"will not try to preserve it.\n", capabilities[i].name);
-			}
-		}
-
-		if ((capng_rc = capng_apply(CAPNG_SELECT_BOTH)) != 0) {
-			LogError(0, RS_RET_LIBCAPNG_ERR,
-				"could not transfer the specified internal posix capabilities "
-				"settings to the kernel, capng_apply=%d", capng_rc);
-			capng_failed = 1;
-		}
-
-		if (capng_failed) {
-			DBGPRINTF("Capabilities were not dropped successfully.\n");
-			if (loadConf->globals.bAbortOnFailedLibcapngSetup) {
-				ABORT_FINALIZE(RS_RET_LIBCAPNG_ERR);
+				DBGPRINTF("Capabilities were dropped successfully\n");
 			}
 		} else {
-			DBGPRINTF("Capabilities were dropped successfully\n");
+			DBGPRINTF("No capabilities to drop\n");
 		}
-	} else {
-		DBGPRINTF("No capabilities to drop\n");
 	}
 #endif
 
