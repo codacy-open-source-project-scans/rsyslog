@@ -209,7 +209,6 @@ TESTS +=  \
 	invalid_nested_include.sh \
 	omfwd-tls-invalid-permitExpiredCerts.sh \
 	omfwd-keepalive.sh \
-	omusrmsg-noabort-legacy.sh \
 	omusrmsg-errmsg-no-params.sh \
 	omusrmsg-noabort.sh \
 	omfile-module-params.sh \
@@ -527,6 +526,7 @@ TESTS +=  \
 endif # ENABLE_LIBGCRYPT
 if HAVE_VALGRIND
 TESTS +=  \
+	omusrmsg-noabort-vg.sh \
 	omfile_hup-vg.sh \
 	gzipwr_hup-vg.sh \
 	tcpflood_wrong_option_output.sh \
@@ -1538,6 +1538,33 @@ TESTS += \
 endif # HAVE_VALGRIND
 endif
 
+if ENABLE_IMDTLS
+TESTS += \
+	imdtls-basic.sh \
+	imdtls-basic-tlscommands.sh \
+	imdtls-basic-timeout.sh \
+	imdtls-error-cert.sh \
+	imdtls-sessionbreak.sh
+if HAVE_VALGRIND
+TESTS += \
+	imdtls-basic-vg.sh \
+	imdtls-sessionbreak-vg.sh
+endif # HAVE_VALGRIND
+if ENABLE_OMDTLS
+TESTS += \
+	sndrcv_dtls_certvalid.sh \
+	sndrcv_dtls_anon_ciphers.sh \
+	sndrcv_dtls_certvalid_ciphers.sh \
+	sndrcv_dtls_certvalid_permitted.sh \
+	sndrcv_dtls_certvalid_missing.sh \
+	sndrcv_dtls_anon_ciphers.sh
+if HAVE_VALGRIND
+TESTS += \
+	sndrcv_dtls_certvalid-vg.sh
+endif # HAVE_VALGRIND
+endif # ENABLE_OMDTLS
+endif # ENABLE_IMDTLS
+
 if ENABLE_OMUDPSPOOF
 TESTS += \
 	omudpspoof_errmsg_no_params.sh \
@@ -2108,9 +2135,9 @@ EXTRA_DIST= \
 	zstd.sh \
 	zstd-vg.sh \
 	gzipwr_hup-vg.sh \
-	omusrmsg-noabort-legacy.sh \
 	omusrmsg-errmsg-no-params.sh \
 	omusrmsg-noabort.sh \
+	omusrmsg-noabort-vg.sh \
 	omfile-module-params.sh \
 	omfile-read-only-errmsg.sh \
 	omfile-null-filename.sh \
@@ -2529,6 +2556,20 @@ EXTRA_DIST= \
 	sndrcv_omudpspoof-bigmsg.sh \
 	sndrcv_omudpspoof_nonstdpt.sh \
 	sndrcv_gzip.sh \
+	imdtls-basic.sh \
+	imdtls-basic-tlscommands.sh \
+	imdtls-basic-timeout \
+	imdtls-error-cert.sh \
+	imdtls-sessionbreak.sh \
+	imdtls-basic-vg.sh \
+	imdtls-sessionbreak-vg.sh \
+	sndrcv_dtls_certvalid.sh \
+	sndrcv_dtls_anon_ciphers.sh \
+	sndrcv_dtls_certvalid_ciphers.sh \
+	sndrcv_dtls_certvalid_permitted.sh \
+	sndrcv_dtls_certvalid_missing.sh \
+	sndrcv_dtls_anon_ciphers.sh \
+	sndrcv_dtls_certvalid-vg.sh \
 	action-tx-single-processing.sh \
 	omfwd-errfile-maxsize.sh \
 	omfwd-errfile-maxsize-filled.sh \
