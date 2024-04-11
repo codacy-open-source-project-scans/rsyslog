@@ -2,9 +2,9 @@
 # Process this file with autoconf to produce a configure script.
 
 AC_PREREQ(2.61)
-AC_INIT([rsyslog],[8.2404.0.master],[rsyslog@lists.adiscon.com])   # UPDATE on release
+AC_INIT([rsyslog],[8.2406.0.master],[rsyslog@lists.adiscon.com])   # UPDATE on release
 AC_DEFINE(VERSION_YEAR,  24, [year part of real rsyslog version])  # UPDATE on release
-AC_DEFINE(VERSION_MONTH,  4, [month part of real rsyslog version]) # UPDATE on release
+AC_DEFINE(VERSION_MONTH,  6, [month part of real rsyslog version]) # UPDATE on release
 
 AM_INIT_AUTOMAKE([subdir-objects])
 
@@ -2510,7 +2510,7 @@ AC_ARG_ENABLE(imdtls,
         [enable_imdtls=no]
 )
 if test "x$enable_imdtls" = "xyes"; then
-	PKG_CHECK_MODULES(OPENSSL, openssl)
+        PKG_CHECK_MODULES(OPENSSL, openssl >= 1.1.0)
 fi
 AM_CONDITIONAL(ENABLE_IMDTLS, test x$enable_imdtls = xyes)
 # END IMDTLS INPUT
@@ -2527,7 +2527,7 @@ AC_ARG_ENABLE(omdtls,
         [enable_omdtls=no]
 )
 if test "x$enable_omdtls" = "xyes"; then
-	PKG_CHECK_MODULES(OPENSSL, openssl)
+	PKG_CHECK_MODULES(OPENSSL, openssl >= 1.0.2)
 fi
 AM_CONDITIONAL(ENABLE_OMDTLS, test x$enable_omdtls = xyes)
 # END OMDTLS INPUT

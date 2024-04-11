@@ -912,16 +912,19 @@ if ENABLE_OMHTTP
 TESTS +=  \
 	omhttp-auth.sh \
 	omhttp-basic.sh \
+	omhttp-basic-ignorecodes.sh \
 	omhttp-batch-fail-with-400.sh \
 	omhttp-batch-jsonarray-compress.sh \
 	omhttp-batch-jsonarray-retry.sh \
 	omhttp-batch-jsonarray.sh \
 	omhttp-batch-kafkarest-retry.sh \
 	omhttp-batch-kafkarest.sh \
+	omhttp-batch-retry-metadata.sh \
 	omhttp-batch-lokirest-retry.sh \
 	omhttp-batch-lokirest.sh \
 	omhttp-batch-newline.sh \
 	omhttp-retry.sh \
+	omhttp-retry-timeout.sh \
 	omhttp-httpheaderkey.sh \
 	omhttp-multiplehttpheaders.sh \
 	omhttp-dynrestpath.sh \
@@ -930,12 +933,15 @@ if HAVE_VALGRIND
 TESTS +=  \
 	omhttp-auth-vg.sh \
 	omhttp-basic-vg.sh \
+	omhttp-basic-ignorecodes-vg.sh \
 	omhttp-batch-jsonarray-compress-vg.sh \
 	omhttp-batch-jsonarray-retry-vg.sh \
 	omhttp-batch-jsonarray-vg.sh \
 	omhttp-batch-kafkarest-retry-vg.sh \
+	omhttp-batch-retry-metadata-vg.sh \
 	omhttp-batch-lokirest-retry-vg.sh \
 	omhttp-retry-vg.sh \
+	omhttp-retry-timeout-vg.sh \
 	omhttp-batch-lokirest-vg.sh
 endif
 endif
@@ -2558,7 +2564,7 @@ EXTRA_DIST= \
 	sndrcv_gzip.sh \
 	imdtls-basic.sh \
 	imdtls-basic-tlscommands.sh \
-	imdtls-basic-timeout \
+	imdtls-basic-timeout.sh \
 	imdtls-error-cert.sh \
 	imdtls-sessionbreak.sh \
 	imdtls-basic-vg.sh \
@@ -2608,6 +2614,7 @@ EXTRA_DIST= \
 	testsuites/htpasswd \
 	omhttp-auth.sh \
 	omhttp-basic.sh \
+	omhttp-basic-ignorecodes.sh \
 	omhttp-batch-fail-with-400.sh \
 	omhttp-batch-jsonarray-compress.sh \
 	omhttp-batch-jsonarray-retry.sh \
@@ -2618,6 +2625,11 @@ EXTRA_DIST= \
 	omhttp-batch-lokirest.sh \
 	omhttp-batch-lokirest-vg.sh \
 	omhttp-batch-newline.sh \
+	omhttp-batch-retry-metadata.sh \
+	omhttp-retry-timeout.sh \
+	omhttp-basic-ignorecodes-vg.sh \
+	omhttp-batch-retry-metadata-vg.sh \
+	omhttp-retry-timeout-vg.sh \
 	omhttp-retry.sh \
 	omhttp-httpheaderkey.sh \
 	omhttp-multiplehttpheaders.sh \
@@ -2632,6 +2644,7 @@ EXTRA_DIST= \
 	omhttp-batch-lokirest-retry-vg.sh \
 	omhttp-retry-vg.sh \
 	omhttp_server.py \
+	omhttp-validate-response.py \
 	omprog-defaults.sh \
 	omprog-defaults-vg.sh \
 	omprog-output-capture.sh \
